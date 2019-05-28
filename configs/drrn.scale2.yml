@@ -1,0 +1,50 @@
+data:
+    scale_factor: 2
+    upsample_LR_patch: True
+    train:
+        name: 'T91'
+        data_dir: './preprocessed/T91_HR_31_EEE4423.npy'
+        params:
+            original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
+            patch_size: 31
+            stride: 21
+    valid:
+        name:
+            - 'Set5'
+            - 'Set14'
+            - 'Manga109'
+            - 'BSDS100'
+            - 'Urban100'
+        base_dir: '../../dataset/taskwise/super_resolution/'
+
+
+train:
+    batch_size: 128
+    num_epochs: 50
+    dir: './results/drrn.scale2'
+
+
+model:
+    name: 'drrn'
+    params:
+        scale_factor: 2
+
+
+scheduler:
+    name: 'step'
+    step_size: 5
+
+
+optimizer:
+    name: 'sgd'
+    lr: 0.1
+    weight_decay: 0.0001
+    gradient_clip: 0.01
+
+
+loss:
+    name: 'mse_loss'
+
+
+gpu: 1
+

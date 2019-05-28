@@ -1,0 +1,35 @@
+data:
+    scale_factor: 3
+    upsample_LR_patch: False 
+    train:
+        name: 'T91'
+        data_dir: './preprocessed/T91_HR_63_EEE4423.npy'
+        params:
+            original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
+            patch_size: 63
+            stride: 63
+    valid:
+        name:
+            - 'Set5'
+            - 'Set14'
+            - 'Manga109'
+            - 'BSDS100'
+            - 'Urban100'
+        base_dir: '../../dataset/taskwise/super_resolution/'
+
+
+train:
+    batch_size: 64
+    num_epochs: 50
+    dir: './results/fsrcnn.scale3'
+    
+model:
+    name: 'fsrcnn'
+    params:
+        scale_factor: 3
+
+loss:
+    name: 'mse_loss'
+    
+gpu: 1
+
