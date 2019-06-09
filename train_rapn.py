@@ -49,16 +49,21 @@ def train_single_epoch(config, model, dataloader, criterion,
         HR_patch = HR_patch.to(device)
         LR_patch = LR_patch.to(device)
 
+
+        target_scale = np.random.randint(5,
+                config.model.params.scale_factor*5, size=batch_size) / 5
+
         optimizer.zero_grad()
-        output = model.forward(LR_patch)
-        # loss = 0
-        # if type(output) == list:
-        #    for o in output:
-        #        loss += criterion(o, HR_patch)
-        #else:
-        #    loss = criterion(output, HR_patch)
-        loss = criterion(output, HR_patch)
+        output_img, pred_scale = model.forward(HR_patch, target_scale)
+
+        #target_scale_v = (torch.zeros(batch_size) + target_scale).to(device)
+        target_scale_v = torch.Tensor(target_scale).to(device)
+        loss = criterion(output_img, pred_scale, HR_patch, target_scale_v)
         log_dict['loss'] = loss.item()
+        #log_dict['pred_scale'] = torch.argmax(pred_scale[0]).item() /5 +1
+        log_dict['pred_scale'] = (pred_scale[0]).item()
+        log_dict['scale'] = target_scale[0]
+
 
         loss.backward()
         if 'gradient_clip' in config.optimizer:
@@ -103,14 +108,19 @@ def evaluate_single_epoch(config, model, dataloader, criterion,
             LR_img = LR_img[:,:1].to(device)
             BC_img = BC_img[:,:1].to(device)
 
-            pred = model.forward(LR_img)
-            if type(pred) == list:
-                pred = pred[-1]
+            target_scale = config.model.params.scale_factor
 
-            total_loss += criterion(pred, HR_img).item()
+            target_scale_v = torch.Tensor(np.zeros(batch_size) +
+                                        target_scale).to(device)
 
-            total_psnr += PSNR(pred.cpu(), HR_img.cpu(),
-                               s=config.data.scale_factor)
+            pred_img, pred_scale = model.forward(HR_img, target_scale_v)
+            if type(pred_img) == list:
+                pred_img = pred_img[-1]
+            total_loss += criterion(pred_img, pred_scale,
+                                    HR_img, target_scale_v).item()
+
+            total_psnr += PSNR(pred_img.cpu(), HR_img.cpu(),
+                               s=target_scale)
 
             f_epoch = epoch + i / total_step
             desc = '{:5s}'.format('val')

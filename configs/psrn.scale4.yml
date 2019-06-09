@@ -7,7 +7,7 @@ data:
         params:
             original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
             patch_size: 64
-            stride: 64
+            stride: 41
     valid:
         name:
             - 'Set5'
@@ -20,18 +20,37 @@ data:
 
 train:
     batch_size: 64
-    num_epochs: 100
-    dir: './results/fsrcnn.scale4'
-    
+    num_epochs: 1000
+    dir: './results/psrn.scale4'
+
+
 model:
-    name: 'fsrcnn'
+    name: 'psrn'
     params:
         scale_factor: 4
+        residual: False
+
+
+scheduler:
+    name: 'step'
+    params:
+      gamma: 0.5
+      step_size: 200
+
+
+optimizer:
+    name: 'adam'
+    params:
+      lr: 0.0001
+    gradient_clip: 0.01
+
 
 loss:
-    name: 'mse_loss'
+    name: 'psrn_loss'
     params:
-        reduction: 'mean'
-    
+      reduction: 'sum'
+      scale_factor: 4
+
+
 gpu: 1
 

@@ -1,12 +1,12 @@
 data:
-    scale_factor: 3
-    upsample_LR_patch: True
+    scale_factor: 2
+    upsample_LR_patch: False
     train:
         name: 'T91'
-        data_dir: './preprocessed/T91_HR_31_EEE4423.npy'
+        data_dir: './preprocessed/T91_HR_32_EEE4423.npy'
         params:
             original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
-            patch_size: 31
+            patch_size: 32
             stride: 21
     valid:
         name:
@@ -19,15 +19,15 @@ data:
 
 
 train:
-    batch_size: 128
+    batch_size: 20
     num_epochs: 50
-    dir: './results/drrn.scale3'
+    dir: './results/dbpn.scale2'
 
 
 model:
-    name: 'drrn'
+    name: 'dbpn'
     params:
-        scale_factor: 3
+        scale_factor: 2
 
 
 scheduler:
@@ -37,10 +37,9 @@ scheduler:
 
 
 optimizer:
-    name: 'sgd'
+    name: 'adam'
     params:
-      lr: 0.1
-      weight_decay: 0.0001
+      lr: 0.0001
     gradient_clip: 0.01
 
 
@@ -50,5 +49,5 @@ loss:
       reduction: 'sum'
 
 
-gpu: 0
+gpu: 1
 

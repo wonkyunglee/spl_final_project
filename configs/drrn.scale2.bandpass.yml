@@ -1,5 +1,5 @@
 data:
-    scale_factor: 3
+    scale_factor: 2
     upsample_LR_patch: True
     train:
         name: 'T91'
@@ -21,19 +21,19 @@ data:
 train:
     batch_size: 128
     num_epochs: 50
-    dir: './results/drrn.scale3'
+    dir: './results/drrn.scale2.bandpass'
 
 
 model:
     name: 'drrn'
     params:
-        scale_factor: 3
+        scale_factor: 2
 
 
 scheduler:
     name: 'step'
     params:
-      step_size: 5
+      step_size: 10
 
 
 optimizer:
@@ -49,6 +49,12 @@ loss:
     params:
       reduction: 'sum'
 
+transform:
+    name: 'bandpass_transform'
+    params:
+        transform_ratio: 0.1
 
-gpu: 0
+
+
+gpu: 1
 

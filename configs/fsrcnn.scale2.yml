@@ -20,7 +20,7 @@ data:
 
 train:
     batch_size: 64
-    num_epochs: 50
+    num_epochs: 100 
     dir: './results/fsrcnn.scale2'
     
 model:
@@ -30,6 +30,8 @@ model:
 
 loss:
     name: 'mse_loss'
+    params:
+        reduction: 'mean'
     
 gpu: 1
 

@@ -1,13 +1,13 @@
 data:
-    scale_factor: 4
+    scale_factor: 3
     upsample_LR_patch: False 
     train:
         name: 'T91'
-        data_dir: './preprocessed/T91_HR_64_EEE4423.npy'
+        data_dir: './preprocessed/T91_HR_51_EEE4423.npy'
         params:
             original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
-            patch_size: 64
-            stride: 64
+            patch_size: 51
+            stride: 30
     valid:
         name:
             - 'Set5'
@@ -19,19 +19,35 @@ data:
 
 
 train:
-    batch_size: 64
-    num_epochs: 100
-    dir: './results/fsrcnn.scale4'
-    
+    batch_size: 16
+    num_epochs: 200
+    dir: './results/srfbn.scale3'
+
+
 model:
-    name: 'fsrcnn'
+    name: 'srfbn'
     params:
-        scale_factor: 4
+        scale_factor: 3
+
+
+scheduler:
+    name: 'step'
+    params:
+      gamma: 0.5
+      step_size: 200
+
+
+optimizer:
+    name: 'adam'
+    params:
+      lr: 0.0001
+
 
 loss:
     name: 'mse_loss'
     params:
-        reduction: 'mean'
-    
+      reduction: 'sum'
+
+
 gpu: 1
 

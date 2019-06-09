@@ -1,13 +1,13 @@
 data:
     scale_factor: 3
-    upsample_LR_patch: True
+    upsample_LR_patch: False 
     train:
         name: 'T91'
-        data_dir: './preprocessed/T91_HR_31_EEE4423.npy'
+        data_dir: './preprocessed/T91_HR_42_EEE4423.npy'
         params:
             original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
-            patch_size: 31
-            stride: 21
+            patch_size: 42
+            stride: 30
     valid:
         name:
             - 'Set5'
@@ -19,29 +19,28 @@ data:
 
 
 train:
-    batch_size: 128
-    num_epochs: 50
-    dir: './results/drrn.scale3'
+    batch_size: 16
+    num_epochs: 1000
+    dir: './results/srfbn.scale3.bandpass'
 
 
 model:
-    name: 'drrn'
+    name: 'srfbn'
     params:
-        scale_factor: 3
+        scale_factor: 2
 
 
 scheduler:
     name: 'step'
     params:
-      step_size: 5
+      gamma: 0.5
+      step_size: 200
 
 
 optimizer:
-    name: 'sgd'
+    name: 'adam'
     params:
-      lr: 0.1
-      weight_decay: 0.0001
-    gradient_clip: 0.01
+      lr: 0.0001
 
 
 loss:
@@ -50,5 +49,12 @@ loss:
       reduction: 'sum'
 
 
-gpu: 0
+transform:
+    name: 'bandpass_transform'
+    params:
+        transform_ratio: 0.1
+
+
+
+gpu: 1
 

@@ -51,6 +51,11 @@ def _get_default_config():
     c.loss.name = None
     c.loss.params = edict()
 
+    # transforms
+    c.transform = edict()
+    c.transform.name = None
+    c.transform.params = edict()
+
     return c
 
 

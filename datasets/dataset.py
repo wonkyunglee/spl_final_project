@@ -15,7 +15,7 @@ class TrainSet(Dataset):
 
     def __init__(self, data_dir, original_data_dir,
                  HR_patch_size=64, scale_factor=4,
-                 upsample_LR_patch=True, patch_size=64, stride=32):
+                 upsample_LR_patch=True, patch_size=64, stride=32, transform=None):
         super(TrainSet, self).__init__()
 
         if not os.path.exists(data_dir):
@@ -25,12 +25,16 @@ class TrainSet(Dataset):
         self.HR_patch_size = HR_patch_size
         self.scale_factor = scale_factor
         self.upsample_LR_patch = upsample_LR_patch
+        self.transform = transform
 
 
     def __getitem__(self, idx):
         HR_patch_np = self.HR_patches_np[idx] # high resolution patch
         LR_patch_np = imresize(HR_patch_np, scalar_scale = 1.0 / self.scale_factor) # low resolution patch
         BC_patch_np = imresize(LR_patch_np, output_shape=HR_patch_np.shape[-2:]) # bicubic upsampled patch
+
+        if self.transform:
+            LR_patch_np = self.transform(LR_patch_np)
 
         if self.upsample_LR_patch:
             LR_patch_np = BC_patch_np
@@ -43,6 +47,7 @@ class TrainSet(Dataset):
         HR_patch = HR_patch.unsqueeze(0) # size : 1(c) x 64(h) x 64(w)
         LR_patch = LR_patch.unsqueeze(0) # size : 1(c) x 16(h) x 16(w)
         BC_patch = BC_patch.unsqueeze(0) # size : 1(c) x 64(h) x 64(w)
+
 
         return HR_patch, LR_patch, BC_patch # Y-channel patches
 
