@@ -4,8 +4,12 @@ import math
 from .model_blocks import UpBlock, DownBlock, D_UpBlock, D_DownBlock, ConvBlock
 from .model_blocks import FeedbackBlock, ConvBlock_v2, DeconvBlock_v2, MeanShift, Flatten
 import numpy as np
+import sys, os
+sys.path.append('../')
+from utils.imresize import imresize
 
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class DBPN(nn.Module):
@@ -723,12 +727,12 @@ class CRAPN(nn.Module):
 
         pred_scale = self.scale_regressor(lr).squeeze().view(batch_size, -1)
 
-        upscaled_pred_scale = pred_scale.view((batch_size,1,1)).repeat((1,w,h)).reshape((batch_size, 1, w, h)).cuda()
+        upscaled_pred_scale = pred_scale.view((batch_size,1,1)).repeat((1,w,h)).reshape((batch_size, 1, w, h)).detach()
 
 
         out = []
         for i in range(self.repeat):
-            normalized_stage = (i+1) / 10
+            normalized_stage = (i+1) / self.repeat
             upscaled_stage = torch.Tensor([normalized_stage]).repeat((batch_size, 1, w, h)).cuda()
             conditioned_input = torch.cat([lr, upscaled_pred_scale, upscaled_stage], dim=1) # conditioning scale and stage
 
@@ -738,6 +742,407 @@ class CRAPN(nn.Module):
 
 
         return out, pred_scale + 2.5
+
+
+
+class CRAPN_S(nn.Module):
+    def __init__(self, scale_factor=4, repeat=10):
+        super(CRAPN_S, self).__init__()
+        self.repeat = repeat
+        self.scale_factor = scale_factor
+
+        self.reconstructor = nn.Sequential(
+            ConvBlock_v2(1+self.repeat+16, 128, kernel_size=3, stride=1, padding=1, act_type='prelu', norm_type=None),
+            ConvBlock_v2(128, 32, kernel_size=3, stride=1, padding=1, act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 32, kernel_size=3, stride=2, padding=1, act_type='prelu', norm_type=None),
+            DeconvBlock_v2(32, 32,
+                               kernel_size=6, stride=2, padding=2,
+                               act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 32, kernel_size=3, stride=2, padding=1, act_type='prelu', norm_type=None),
+            DeconvBlock_v2(32, 32,
+                               kernel_size=6, stride=2, padding=2,
+                               act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 32, kernel_size=3, stride=2, padding=1, act_type='prelu', norm_type=None),
+            DeconvBlock_v2(32, 32,
+                               kernel_size=6, stride=2, padding=2,
+                               act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 1, kernel_size=3, stride=1, padding=1, act_type=None, norm_type=None),
+        )
+
+        self.scale_regressor = nn.Sequential(
+            ConvBlock_v2(1, 16, kernel_size=3, stride=1, padding=1, act_type='relu', norm_type='bn'),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            ConvBlock_v2(16, 32, kernel_size=3, stride=2, padding=1, act_type='relu', norm_type='bn'),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            ConvBlock_v2(32, 64, kernel_size=3, stride=2, padding=1, act_type='relu', norm_type='bn'),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            #ConvBlock_v2(64, 25, kernel_size=3, stride=2, padding=1, act_type=None, norm_type=None),
+            ConvBlock_v2(64, 128, kernel_size=3, stride=2, padding=1, act_type='relu', norm_type='bn'),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Dropout(0.25),
+            ConvBlock_v2(128, 64, kernel_size=1, stride=1, padding=0, act_type='relu', norm_type=None),
+            nn.Dropout(0.25),
+            ConvBlock_v2(64, 16, kernel_size=1, stride=1, padding=0, act_type='relu', norm_type=None),
+            nn.Dropout(0.25),
+            ConvBlock_v2(16, 16, kernel_size=1, stride=1, padding=0, act_type=None, norm_type=None),
+        )
+
+        #self.scale_regressor = nn.Sequential(
+        #    Flatten(),
+        #    nn.Linear(64*64*3, 64),
+        #    nn.PReLU(),
+        #    nn.Linear(64, 64),
+        #    nn.PReLU(),
+        #    nn.Linear(64, 1),
+        #)
+
+    def down_and_up_sample(self, img_tensor, scales):
+        ret = []
+        batch_size = img_tensor.shape[0]
+        w = img_tensor.shape[-2]
+        h = img_tensor.shape[-1]
+        for img, scale in zip(img_tensor, scales):
+            img = img.view(1, 1, w, h)
+            if scale < 0.1:
+                scale = 0.25
+
+            x = imresize(img.squeeze().cpu().numpy(), scalar_scale=scale)
+            x = imresize(x, output_shape=(w, h))
+            x = torch.Tensor(x).cuda()
+            x = x.view(1,1,w,h)
+            # x = nn.UpsamplingBilinear2d(scale_factor=scale)(img)
+            # x = nn.UpsamplingBilinear2d(size=(w, h))(x)
+
+            ret.append(x)
+        ret = torch.cat(ret, dim=0)
+        return ret
+
+
+    def forward(self, input_x, target_scales):
+        target_scales = 1 / target_scales
+        batch_size = len(input_x)
+        w = input_x.shape[-2]
+        h = input_x.shape[-1]
+        lrs = []
+        lrs_for_scale_pred = []
+
+        #print('x', target_scales[0])
+        lr = self.down_and_up_sample(input_x, target_scales)
+        pred_scale_raw = self.scale_regressor(lr).squeeze().view(batch_size, -1)
+        pred_scale = nn.Softmax()(pred_scale_raw)
+        T = 1/10 # temperature
+        pred_scale_t = nn.Softmax()(pred_scale_raw / T)
+
+        #upscaled_pred_scale = pred_scale.view((
+        #    batch_size,1,1)).repeat((1,w,h)).reshape((batch_size, 1, w, h)).detach()
+
+        #upscaled_pred_scale = pred_scale_t.view((
+        #    batch_size,16,1,1)).repeat((1,1,w,h)).reshape((batch_size, 16, w, h)).detach()
+
+        tt = torch.Tensor(1/target_scales.cpu() * 5 - 5).long()
+        one_hot_target_scales = nn.functional.one_hot(tt, 16).float().cuda()
+        upscaled_pred_scale = one_hot_target_scales.view((batch_size, -1)).view((
+            batch_size,16,1,1)).repeat((1,1,w,h)).reshape((batch_size, 16, w, h)).detach()
+
+        out = []
+        #upscaled_stage_base = torch.zeros((batch_size, 1, w, h)).cuda()
+        upscaled_stage_base = torch.zeros((batch_size, self.repeat, w, h)).cuda()
+        for i in range(self.repeat):
+            # normalized_stage = (i+1) / self.repeat
+            # upscaled_stage = upscaled_stage_base + normalized_stage
+            upscaled_stage_base[:,i] = 1
+            upscaled_stage_base[:, np.arange(self.repeat) != i] = 0
+            upscaled_stage = upscaled_stage_base
+            conditioned_input = torch.cat([lr, upscaled_pred_scale, upscaled_stage], dim=1) # conditioning scale and stage
+
+            #a = self.reconstructor[:2](conditioned_input)
+            #a = self.reconstructor[2:4](a) + a
+            #a = self.reconstructor[4:6](a) + a
+            #a = self.reconstructor[6:8](a) + a
+            #output = self.reconstructor[8](a)
+
+            output = self.reconstructor(conditioned_input)
+            lr = output + lr.detach()
+            out.append(lr)
+
+
+        #return out, pred_scale * 10 + self.repeat/2 + 0.5
+        return out, pred_scale
+
+
+    def inference(self, input_x):
+        batch_size = len(input_x)
+        T = 1/10
+        #for i in range(40):
+        #    x = input_x.shape[-2]
+        #    y = input_x.shape[-1]
+        #    x = np.random.randint(0, x-63)
+        #    y = np.random.randint(0, y-63)
+        #    if i == 0:
+        #        pred_scale = self.scale_regressor(input_x[:,:,x:x+64,y:y+64]).squeeze().view(batch_size, -1)
+        #        pred_scale = nn.Softmax()(pred_scale/T)
+        #    else:
+        #        pred_scale += nn.Softmax()(
+        #            self.scale_regressor(input_x[:,:,x:x+64,y:y+64]).squeeze().view(batch_size, -1)/T
+        #        )
+        #pred_scale = pred_scale / 40
+
+        pred_scale_raw = self.scale_regressor(input_x).squeeze().view(batch_size, -1)
+        pred_scale = nn.Softmax()(pred_scale_raw)
+        pred_scale = nn.Softmax()(pred_scale_raw / T)
+
+        #pred_scale = self.scale_regressor(input_x).squeeze().view(batch_size, -1)
+
+        repeat_list = []
+        ratio = np.power(self.scale_factor, 1/self.repeat)
+        for ps in pred_scale:
+            ps = torch.argmax(ps).cpu().numpy() / 5 + 1
+            repeat = 1
+            for i in range(self.repeat):
+                if ps / np.power(ratio, i+1) > 1:
+                    repeat += 1
+            repeat_list.append(repeat)
+
+        out = []
+
+        for x, repeat, ps in zip(input_x, repeat_list, pred_scale):
+
+            w = x.shape[-2]
+            h = x.shape[-1]
+            upscaled_pred_scale = ps.view((
+                1,16,1,1)).repeat((1,1,w,h)).reshape((1, 16, w, h)).detach()
+            upscaled_stage_base = torch.zeros((1, self.repeat, w, h)).cuda()
+
+            x = x.unsqueeze(0)
+
+            for i in range(repeat):
+                upscaled_stage_base[:,i] = 1
+                upscaled_stage_base[:,np.arange(repeat) != i] = 0
+                upscaled_stage = upscaled_stage_base
+                conditioned_input = torch.cat([x,
+                                               upscaled_pred_scale, upscaled_stage], dim=1) # conditioning scale and stage
+
+                #a = self.reconstructor[:2](conditioned_input)
+                #a = self.reconstructor[2:4](a) + a
+                #a = self.reconstructor[4:6](a) + a
+                #a = self.reconstructor[6:8](a) + a
+                #output = self.reconstructor[8](a)
+                output = self.reconstructor(conditioned_input)
+                # x = x + output
+                x = x.detach() + output
+            out.append(x)
+
+        out = torch.cat(out, dim=0)
+
+
+        #return out, pred_scale * 10 + self.repeat/2 + 0.5
+        return out, pred_scale
+
+
+class USRN(nn.Module):
+    def __init__(self, scale_factor=4, repeat=10):
+        super(USRN, self).__init__()
+        self.repeat = repeat
+        self.scale_factor = scale_factor
+
+        self.reconstructor = nn.Sequential(
+            ConvBlock_v2(1+self.repeat+16, 128, kernel_size=3, stride=1, padding=1, act_type='prelu', norm_type=None),
+            ConvBlock_v2(128, 32, kernel_size=3, stride=1, padding=1, act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 32, kernel_size=3, stride=2, padding=1, act_type='prelu', norm_type=None),
+            DeconvBlock_v2(32, 32,
+                               kernel_size=6, stride=2, padding=2,
+                               act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 32, kernel_size=3, stride=2, padding=1, act_type='prelu', norm_type=None),
+            DeconvBlock_v2(32, 32,
+                               kernel_size=6, stride=2, padding=2,
+                               act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 32, kernel_size=3, stride=2, padding=1, act_type='prelu', norm_type=None),
+            DeconvBlock_v2(32, 32,
+                               kernel_size=6, stride=2, padding=2,
+                               act_type='prelu', norm_type=None),
+
+            ConvBlock_v2(32, 1, kernel_size=3, stride=1, padding=1, act_type=None, norm_type=None),
+        )
+
+        self.scale_regressor = nn.Sequential(
+            ConvBlock_v2(1, 16, kernel_size=3, stride=1, padding=1, act_type='relu', norm_type='bn'),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            ConvBlock_v2(16, 32, kernel_size=3, stride=2, padding=1, act_type='relu', norm_type='bn'),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            ConvBlock_v2(32, 64, kernel_size=3, stride=2, padding=1, act_type='relu', norm_type='bn'),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            #ConvBlock_v2(64, 25, kernel_size=3, stride=2, padding=1, act_type=None, norm_type=None),
+            ConvBlock_v2(64, 128, kernel_size=3, stride=2, padding=1, act_type='relu', norm_type='bn'),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Dropout(0.25),
+            ConvBlock_v2(128, 64, kernel_size=1, stride=1, padding=0, act_type='relu', norm_type=None),
+            nn.Dropout(0.25),
+            ConvBlock_v2(64, 16, kernel_size=1, stride=1, padding=0, act_type='relu', norm_type=None),
+            nn.Dropout(0.25),
+            ConvBlock_v2(16, 16, kernel_size=1, stride=1, padding=0, act_type=None, norm_type=None),
+        )
+
+        #self.scale_regressor = nn.Sequential(
+        #    Flatten(),
+        #    nn.Linear(64*64*3, 64),
+        #    nn.PReLU(),
+        #    nn.Linear(64, 64),
+        #    nn.PReLU(),
+        #    nn.Linear(64, 1),
+        #)
+
+    def down_and_up_sample(self, img_tensor, scales):
+        ret = []
+        batch_size = img_tensor.shape[0]
+        w = img_tensor.shape[-2]
+        h = img_tensor.shape[-1]
+        for img, scale in zip(img_tensor, scales):
+            img = img.view(1, 1, w, h)
+            if scale < 0.1:
+                scale = 0.1
+
+            x = imresize(img.squeeze().cpu().numpy(), scalar_scale=scale)
+            x = imresize(x, output_shape=(w, h))
+            x = torch.Tensor(x).cuda()
+            x = x.view(1,1,w,h)
+            # x = nn.UpsamplingBilinear2d(scale_factor=scale)(img)
+            # x = nn.UpsamplingBilinear2d(size=(w, h))(x)
+
+            ret.append(x)
+        ret = torch.cat(ret, dim=0)
+        return ret
+
+
+    def forward(self, input_x, target_scales):
+        target_scales = 1 / target_scales
+        batch_size = len(input_x)
+        w = input_x.shape[-2]
+        h = input_x.shape[-1]
+        lrs = []
+        lrs_for_scale_pred = []
+
+        #print('x', target_scales[0])
+        lr = self.down_and_up_sample(input_x, target_scales)
+        pred_scale_raw = self.scale_regressor(lr).squeeze().view(batch_size, -1)
+        pred_scale = nn.Softmax()(pred_scale_raw)
+        T = 1/10 # temperature
+        pred_scale_t = nn.Softmax()(pred_scale_raw / T)
+
+        #upscaled_pred_scale = pred_scale.view((
+        #    batch_size,1,1)).repeat((1,w,h)).reshape((batch_size, 1, w, h)).detach()
+
+        #upscaled_pred_scale = pred_scale_t.view((
+        #    batch_size,16,1,1)).repeat((1,1,w,h)).reshape((batch_size, 16, w, h)).detach()
+
+        tt = torch.Tensor(1/target_scales.cpu() * 5 - 5).long()
+        one_hot_target_scales = nn.functional.one_hot(tt, 16).float().cuda()
+        upscaled_pred_scale = one_hot_target_scales.view((batch_size, -1)).view((
+            batch_size,16,1,1)).repeat((1,1,w,h)).reshape((batch_size, 16, w, h)).detach()
+
+        out = []
+        #upscaled_stage_base = torch.zeros((batch_size, 1, w, h)).cuda()
+        upscaled_stage_base = torch.zeros((batch_size, self.repeat, w, h)).cuda()
+        for i in range(self.repeat):
+            # normalized_stage = (i+1) / self.repeat
+            # upscaled_stage = upscaled_stage_base + normalized_stage
+            upscaled_stage_base[:,i] = 1
+            for j in range(self.repeat):
+                if j == i:
+                    continue
+                upscaled_stage_base[:, j] = 0
+            conditioned_input = torch.cat([lr, upscaled_pred_scale, upscaled_stage_base], dim=1) # conditioning scale and stage
+
+            #a = self.reconstructor[:2](conditioned_input)
+            #a = self.reconstructor[2:4](a) + a
+            #a = self.reconstructor[4:6](a) + a
+            #a = self.reconstructor[6:8](a) + a
+            #output = self.reconstructor[8](a)
+
+            output = self.reconstructor(conditioned_input)
+            lr = output + lr.detach()
+            out.append(lr)
+
+
+        #return out, pred_scale * 10 + self.repeat/2 + 0.5
+        return out, pred_scale
+
+
+    def inference(self, input_x):
+        batch_size = len(input_x)
+        T = 1/10
+        #for i in range(40):
+        #    x = input_x.shape[-2]
+        #    y = input_x.shape[-1]
+        #    x = np.random.randint(0, x-63)
+        #    y = np.random.randint(0, y-63)
+        #    if i == 0:
+        #        pred_scale = self.scale_regressor(input_x[:,:,x:x+64,y:y+64]).squeeze().view(batch_size, -1)
+        #        pred_scale = nn.Softmax()(pred_scale/T)
+        #    else:
+        #        pred_scale += nn.Softmax()(
+        #            self.scale_regressor(input_x[:,:,x:x+64,y:y+64]).squeeze().view(batch_size, -1)/T
+        #        )
+        #pred_scale = pred_scale / 40
+
+        pred_scale_raw = self.scale_regressor(input_x).squeeze().view(batch_size, -1)
+        #pred_scale = nn.Softmax()(pred_scale_raw)
+        pred_scale = nn.Softmax()(pred_scale_raw / T)
+
+        #pred_scale = self.scale_regressor(input_x).squeeze().view(batch_size, -1)
+
+        #repeat_list = []
+        #ratio = np.power(self.scale_factor, 1/self.repeat)
+        #for ps in pred_scale:
+        #    ps = torch.argmax(ps).cpu().numpy() / 5 + 1
+        #    repeat = 1
+        #    for i in range(self.repeat):
+        #        if ps / np.power(ratio, i+1) > 1:
+        #            repeat += 1
+        #    repeat_list.append(repeat)
+        out = []
+
+        for x, ps in zip(input_x, pred_scale):
+
+            w = x.shape[-2]
+            h = x.shape[-1]
+            upscaled_pred_scale = ps.view((
+                1,16,1,1)).repeat((1,1,w,h)).reshape((1, 16, w, h)).detach()
+            upscaled_stage_base = torch.zeros((1, self.repeat, w, h)).cuda()
+
+            x = x.unsqueeze(0)
+
+            for i in range(self.repeat):
+                upscaled_stage_base[:,i] = 1
+                for j in range(self.repeat):
+                    if j == i:
+                        continue
+                    upscaled_stage_base[:, j] = 0
+                conditioned_input = torch.cat([x,
+                                               upscaled_pred_scale, upscaled_stage_base], dim=1) # conditioning scale and stage
+
+                output = self.reconstructor(conditioned_input)
+                # x = x + output
+                x = x.detach() + output
+            out.append(x)
+
+        out = torch.cat(out, dim=0)
+
+
+        #return out, pred_scale * 10 + self.repeat/2 + 0.5
+        return out, pred_scale
 
 
 def get_fsrcnn(scale_factor=4, **kwargs):
@@ -783,6 +1188,14 @@ def get_rapn(scale_factor=4, **kwargs):
 def get_crapn(scale_factor=4, **kwargs):
     return CRAPN(scale_factor=scale_factor, **kwargs)
 
+def get_crapn_s(scale_factor=4, **kwargs):
+    return CRAPN_S(scale_factor=scale_factor, **kwargs)
+
+
+def get_usrn(scale_factor=4, **kwargs):
+    return USRN(scale_factor=scale_factor, **kwargs)
+
+
 
 def get_model(config):
     print('model name:', config.model.name)
@@ -791,5 +1204,46 @@ def get_model(config):
         return f()
     else:
         return f(**config.model.params)
+
+
+from scipy import fftpack
+
+def get_circle_bandpass_filter_mask(shape, ratio=0.5, offset=0.2):
+    default_value = 0.1
+
+    cx = shape[0]//2
+    cy = shape[1]//2
+
+    d1 = (shape[0] * (ratio + offset)) / 2
+    d2 = (shape[0] * offset) / 2
+    # d1 = np.sqrt(ratio * np.power(shape[0],2)/4 + np.power(d2, 2))
+    mask = np.zeros(shape=shape) + default_value
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            if np.power(d2, 2) <= np.power((i-cy), 2) + np.power((j-cx), 2) <= np.power(d1,2):
+                mask[i, j] = 1
+    return mask
+
+
+def apply_filter(im, mask):
+    im_fft = fftpack.fft2(im)
+    im_fft2 = im_fft.copy()
+
+    im_fft2 = fftpack.fftshift(im_fft2)
+    im_fft2 = im_fft2 * mask
+    im_fft2 = fftpack.ifftshift(im_fft2)
+    im_new = fftpack.ifft2(im_fft2).real
+
+    return im_new, im_fft2
+
+
+def highpass_transform_fn(im):
+    ratio = 0.9
+    offset = 0.2
+    mask = get_circle_bandpass_filter_mask(im.shape, ratio, offset)
+    mask = 1 - mask
+    im_new, im_fft2 = apply_filter(im, mask)
+
+    return im_new
 
 

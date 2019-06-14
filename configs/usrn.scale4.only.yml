@@ -1,0 +1,57 @@
+data:
+    scale_factor: 4
+    upsample_LR_patch: False 
+    train:
+        name: 'T91'
+        data_dir: './preprocessed/T91_HR_64_EEE4423.npy'
+        params:
+            original_data_dir: '../../dataset/taskwise/super_resolution/T91/'
+            patch_size: 64
+            stride: 41
+    valid:
+        name:
+            - 'Set5'
+            - 'Set14'
+            - 'Manga109'
+            - 'BSDS100'
+            - 'Urban100'
+        base_dir: '../../dataset/taskwise/super_resolution/'
+
+
+train:
+    batch_size: 64
+    num_epochs: 1000
+    dir: './results/usrn.scale4.only'
+    only: True
+
+
+model:
+    name: 'usrn'
+    params:
+        scale_factor: 4
+        repeat: 10
+
+
+scheduler:
+    name: 'step'
+    params:
+      gamma: 0.5
+      step_size: 200
+
+
+optimizer:
+    name: 'adam'
+    params:
+      lr: 0.0001
+    gradient_clip: 0.01
+
+
+loss:
+    name: 'usrn_loss'
+    params:
+      reduction: 'mean'
+      scale_factor: 4
+
+
+gpu: 1
+

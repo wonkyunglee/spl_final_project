@@ -60,3 +60,14 @@ def get_circle_bandpass_filtered_img(img, ratio=0.5, offset=0.2):
     im_new, im_fft2 = apply_filter(img, get_circle_bandpass_filter_mask(img.shape, ratio, offset))
     return im_new
 
+
+def highpass_transform_fn(im):
+    ratio = 0.9
+    offset = 0.2
+    mask = get_circle_bandpass_filter_mask(im.shape, ratio, offset)
+    mask = 1 - mask
+    im_new, im_fft2 = apply_filter(im, mask)
+
+    return im_new
+
+
