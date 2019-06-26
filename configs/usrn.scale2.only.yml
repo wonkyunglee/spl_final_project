@@ -21,14 +21,14 @@ data:
 train:
     batch_size: 64
     num_epochs: 1000
-    dir: './results/usrn.scale4.only'
+    dir: './results/usrn.scale2.only'
     only: True
 
 
 model:
     name: 'usrn'
     params:
-        scale_factor: 4
+        scale_factor: 2
         repeat: 10
 
 
@@ -50,7 +50,7 @@ loss:
     name: 'usrn_loss'
     params:
       reduction: 'mean'
-      scale_factor: 4
+      scale_factor: 2
 
 
 gpu: 1

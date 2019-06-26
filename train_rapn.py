@@ -149,8 +149,8 @@ def evaluate_single_epoch(config, model, dataloader, criterion,
 def train(config, model, dataloaders, criterion,
           optimizer, scheduler, writer, start_epoch):
     num_epochs = config.train.num_epochs
-    #if torch.cuda.device_count() > 1:
-    #    model = torch.nn.DataParallel(model)
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
     model = model.cuda()
     postfix_dict = {'train/lr': 0.0,
                     'train/loss': 0.0,
@@ -234,7 +234,7 @@ def main():
 
     config = utils.config.load(args.config_file)
 
-    os.environ["CUDA_VISIBLE_DEVICES"]= str(config.gpu)
+    #os.environ["CUDA_VISIBLE_DEVICES"]= str(config.gpu)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     pprint.PrettyPrinter(indent=2).pprint(config)

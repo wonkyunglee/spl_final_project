@@ -4,6 +4,12 @@
 # dataset
 *.tar.gz
 
+# processed_data
+*.pkl
+
+# visualized results
+images/
+
 # preprocessed dataset
 preprocessed/
 

@@ -1,0 +1,13 @@
+# preprocessed dataset
+preprocessed/
+
+# weights
+weights/
+
+# results
+results/
+
+# notebook files
+*.ipynb
+
+

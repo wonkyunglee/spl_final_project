@@ -21,12 +21,12 @@ data:
 train:
     batch_size: 64
     num_epochs: 1000
-    dir: './results/usrn.scale4.only'
-    only: True
+    dir: './results/usrn_nc.scale4'
+    only: False 
 
 
 model:
-    name: 'usrn'
+    name: 'usrn_nc'
     params:
         scale_factor: 4
         repeat: 10
